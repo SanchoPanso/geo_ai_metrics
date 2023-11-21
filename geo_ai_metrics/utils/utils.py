@@ -10,7 +10,7 @@ import numpy as np
 import torch
 
 
-def match_predictions(pred_classes: np.ndarray, true_classes: np.ndarray, iou: np.ndarray, threshold: float):
+def match_predictions(pred_classes: np.ndarray, true_classes: np.ndarray, iou: np.ndarray, threshold: float, agnostic=False):
         """
         Matches predictions to ground truth objects (pred_classes, true_classes) using IoU.
 
@@ -28,10 +28,10 @@ def match_predictions(pred_classes: np.ndarray, true_classes: np.ndarray, iou: n
         # Dx10 matrix, where D - detections, 10 - IoU thresholds
         conformity = -1 * np.ones((pred_classes.shape[0], 1)).astype('int32')
 
-        # LxD matrix where L - labels (rows), D - detections (columns)
-        correct_class = true_classes[:, np.newaxis] == pred_classes
-
-        iou = iou * correct_class  # zero out the wrong classes
+        if not agnostic:
+            # LxD matrix where L - labels (rows), D - detections (columns)
+            correct_class = true_classes[:, np.newaxis] == pred_classes
+            iou = iou * correct_class  # zero out the wrong classes
 
         matches = np.nonzero(iou >= threshold)  # IoU > threshold and classes match
         matches = np.array(matches).T
