@@ -8,6 +8,10 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.10"
 numpy = "^1.26.2"
+matplotlib = "^3.8.2"
+pytest = "^7.4.3"
+opencv-python = "^4.8.1.78"
+easydict = "^1.11"
 
 
 [build-system]
