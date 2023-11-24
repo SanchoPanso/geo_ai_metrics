@@ -2,31 +2,44 @@ import os
 import cv2
 import numpy as np
 import json
-from typing import List, Dict, Union
+from typing import Any, List, Dict, Union
 from easydict import EasyDict
+from types import SimpleNamespace
+import copy
 
 
-class AnnotatedObject(EasyDict):
-    bbox: List[float]
-    category_id: int
-    segmentation: List[List[float]]
+class AnnotatedObject(SimpleNamespace):
+    # bbox: List[float]
+    # category_id: int
+    # segmentation: List[List[float]]
     
-    def __init__(self, d=None, **kwargs):
-        if d is None:
-            d = {'bbox': [0] * 4, 'category_id': 0, 'segmentation': []}
-        super().__init__(d, **kwargs)
+    def __init__(self,
+                 bbox: List[float] = None, 
+                 category_id: int = 0, 
+                 segmentation: List[List[float]] = None,
+                 **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.bbox = bbox or [0, 0, 0, 0]
+        self.category_id = category_id
+        self.segmentation = segmentation or [] 
 
 
-class AnnotatedImage(EasyDict):
-    height: int
-    width: int
-    annotations: List[AnnotatedObject]
+class AnnotatedImage(SimpleNamespace):
+    # height: int
+    # width: int
+    # annotations: List[AnnotatedObject]
     
-    def __init__(self, d=None, **kwargs):
-        if d is None:
-            d = {'width': 0, 'height': 0, 'annotations': []}
-        super().__init__(d, **kwargs)
-    
+    def __init__(self,
+                 width: int = 1, 
+                 height: int = 1, 
+                 annotations: List[AnnotatedObject] = None,
+                 **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.width = width
+        self.height = height
+        self.annotations = annotations or []
+        pass
+
 
 def change_category_ids(image: AnnotatedImage, category_changes: Dict[int, int]) -> AnnotatedImage:
     """Update category indecies according to given map. 
@@ -38,31 +51,32 @@ def change_category_ids(image: AnnotatedImage, category_changes: Dict[int, int])
     
     new_image = AnnotatedImage(width=image.width, height=image.height)
     for bbox in image.annotations:
-        category_id = bbox.category_id
+        new_bbox = copy.deepcopy(bbox)
+        category_id = new_bbox.category_id
         
         if category_id in category_changes:
             new_category_id = category_changes[category_id]
-            bbox.category_id = new_category_id
+            new_bbox.category_id = new_category_id
         
-        new_image.annotations.append(bbox)
+        new_image.annotations.append(new_bbox)
     
     return new_image
     
 
-class Annotation(EasyDict):
+class Annotation(SimpleNamespace):
     """Class that contains annotations for computer vision tasks (detection, instance segmentation)
     
     :param categories: list of categories (or classes), defaults to None
     :param images: easydict of labeled images 
                    with image names as keys (without file extension), defaults to None
     """
-    categories: List[str]
-    images: EasyDict[str, AnnotatedImage]
+    # categories: List[str]
+    # images: Dict[str, AnnotatedImage]
     
-    def __init__(self, d=None, **kwargs):
-        if d is None:
-            d = {'categories': [], 'images': {}}
-        super().__init__(d, **kwargs)
+    def __init__(self, categories: List[str] = [], images: Dict[str, AnnotatedImage] = {}, **kwargs):
+        super().__init__(**kwargs)
+        self.categories = categories
+        self.images = images
     
     def __add__(self, other: 'Annotation') -> 'Annotation':
         additional_cats = [cat for cat in other.categories if cat not in self.categories]
@@ -74,7 +88,7 @@ class Annotation(EasyDict):
                 continue
             other_cat_changes[i] = sum_cats.index(other_cat)
         
-        sum_images = EasyDict(self.images.copy())
+        sum_images = self.images.copy()
         unique_names = set(other.images.keys()) - set(self.images.keys())
         repeatable_names = set(other.images.keys()) - unique_names
         
@@ -124,14 +138,14 @@ def read_coco(path: Union[str, bytes, os.PathLike]) -> Annotation:
     coco_images_conformity = {img['id']: os.path.splitext(img['file_name'])[0] for img in coco_images}
     
     # Get labeled images
-    labeled_images = EasyDict()
+    labeled_images = {}
     for coco_image in coco_images:
         image_name = os.path.splitext(coco_image['file_name'])[0]
-        labeled_images[image_name] = EasyDict({
-            'height': coco_image['height'],
-            'width': coco_image['width'],
-            'annotations': [],
-        })
+        labeled_images[image_name] = AnnotatedImage(
+            height=coco_image['height'],
+            width=coco_image['width'],
+            annotations=[],
+        )
     
     
     coco_annotations = coco_dict['annotations']
@@ -146,14 +160,14 @@ def read_coco(path: Union[str, bytes, os.PathLike]) -> Annotation:
             segmentation = rle2polygons(coco_bbox['segmentation'])
             
         file_name = coco_images_conformity[image_id]
-        bbox = {
-            'category_id': coco_categories_conformity[ctg_id]['num'],
-            'bbox': bbox_coords,
-            'segmentation': segmentation,
-        }
-        labeled_images[file_name]['annotations'].append(bbox)
+        bbox = AnnotatedObject(
+            category_id=coco_categories_conformity[ctg_id]['num'],
+            bbox=bbox_coords,
+            segmentation=segmentation,
+        )
+        labeled_images[file_name].annotations.append(bbox)
     
-    annotation = Annotation({'categories': categories, 'images': labeled_images})
+    annotation = Annotation(categories=categories, images=labeled_images)
     
     return annotation
 
@@ -168,7 +182,7 @@ def write_coco(annotation: Annotation, path: Union[str, bytes, os.PathLike], ima
     
     # Create coco categories list where id starts with 1
     coco_categories = []
-    for i, cls in enumerate(annotation['categories']):
+    for i, cls in enumerate(annotation.categories):
         category = {
             "id": i + 1, 
             "name": cls, 
@@ -178,15 +192,15 @@ def write_coco(annotation: Annotation, path: Union[str, bytes, os.PathLike], ima
     
     # Create coco image list
     coco_images = []
-    for i, image_name in enumerate(annotation['images']):
+    for i, image_name in enumerate(annotation.images):
         
         # CHECK
         # if len(annotation['images'][image_name]['annotations']) == 0:
         #     continue
         
         img_id = i + 1
-        width = annotation['images'][image_name]['width']
-        height = annotation['images'][image_name]['height']
+        width = annotation.images[image_name].width
+        height = annotation.images[image_name].height
         
         image = {
             "id": img_id, 
@@ -204,14 +218,14 @@ def write_coco(annotation: Annotation, path: Union[str, bytes, os.PathLike], ima
     coco_annotations = []
     bbox_id = 1
     
-    for i, image_name in enumerate(annotation['images']):
+    for i, image_name in enumerate(annotation.images):
         img_id = i + 1
-        labeled_image = annotation['images'][image_name]
+        labeled_image = annotation.images[image_name]
     
-        for bbox in labeled_image['annotations']:
-            x, y, w, h = bbox['bbox']
-            cls_id = bbox['category_id']
-            segmentation = bbox['segmentation']
+        for bbox in labeled_image.annotations:
+            x, y, w, h = bbox.bbox
+            cls_id = bbox.category_id
+            segmentation = bbox.segmentation
             coco_annotation = {
                 "id": bbox_id, 
                 "image_id": img_id, 
@@ -244,7 +258,7 @@ def write_coco(annotation: Annotation, path: Union[str, bytes, os.PathLike], ima
     }
 
     with open(path, 'w') as f:
-        json.dump(coco, f)
+        json.dump(coco, f, indent=4)
 
 
 
