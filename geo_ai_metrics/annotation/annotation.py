@@ -261,6 +261,76 @@ def write_coco(annotation: Annotation, path: Union[str, bytes, os.PathLike], ima
         json.dump(coco, f, indent=4)
 
 
+def _read_yolo_labels(path: str, img_size: tuple) -> AnnotatedImage:
+
+    with open(path, 'r', encoding='utf-8') as f:
+        rows = f.read().split('\n')
+    
+    bboxes = []
+    width, height = img_size
+    for row in rows:
+        if row == '':
+            continue
+        row_data = list(map(float, row.split(' ')))
+        if len(row_data) in [5, 6]:
+            cls_id, xc, yc, w, h = row_data[:5]
+            x = xc - w / 2
+            y = yc - h / 2
+            x, w = x * width, w * width
+            y, h = y * height, h * height
+            segment = []
+        else:
+            row_data[: len(row_data) // 2 * 2]
+            cls_id = row_data[0]
+            segment = row_data[1:]
+            
+            segment = np.array(segment).reshape(-1, 1, 2)
+            segment[..., 0] *= width
+            segment[..., 1] *= height
+            
+            x, y = segment[..., 0].min(), segment[..., 1].min()
+            x2, y2 = segment[..., 0].max(), segment[..., 1].max()
+            w, h = x2 - x, y2 - y
+            segment = segment.reshape(1, -1).tolist()
+            
+        bbox = AnnotatedObject([x, y, w, h], int(cls_id), segment)
+        bboxes.append(bbox)
+    
+    image = AnnotatedImage(width, height, bboxes)
+    return image
+
+
+def read_yolo(path: str, img_size: tuple = (1, 1), classes: List[str] = None) -> Annotation:
+    """_summary_
+
+    :param path: absolute path to labels dir with txt-files of yolo annotation
+    :param img_size: _description_
+    :param classes: list of class names, defaults to None
+    :param data_yaml_path: path to data.yaml in yolo dataset, defaults to None
+    :return: annotation extracted from these files
+    """
+    max_cls_id = -1
+    txt_files = os.listdir(path) 
+
+    images_dict = {}
+    
+    for file in txt_files:
+        name, ext = os.path.splitext(file)
+        annot_image = _read_yolo_labels(os.path.join(path, file), img_size)
+
+        for bb in annot_image.annotations:
+            max_cls_id = int(max(max_cls_id, bb.category_id))
+        images_dict[name] = annot_image
+    
+    if classes is not None:
+        # add class class id as class name if given class list isnt big enough
+        for i in range(len(classes), max_cls_id + 1):
+            classes.append(str(i))     
+    else:
+        classes = [str(i) for i in range(max_cls_id + 1)]
+    
+    annotation = Annotation(categories=classes, images=images_dict)
+    return annotation
 
 def write_yolo_det(annotation: dict, path: str):
     
