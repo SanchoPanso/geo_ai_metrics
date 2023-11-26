@@ -1,6 +1,3 @@
-# Ultralytics YOLO 🚀, AGPL-3.0 license
-"""Model validation metrics."""
-
 import math
 import warnings
 from pathlib import Path
@@ -8,6 +5,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import cv2
+
+from geo_ai_metrics.annotation import AnnotatedImage
 
 
 def match_predictions(pred_classes: np.ndarray, true_classes: np.ndarray, iou: np.ndarray, threshold: float, agnostic=False):
@@ -135,7 +135,52 @@ def mask_iou(mask1: np.ndarray, mask2: np.ndarray, eps=1e-7):
     union = (mask1.sum(1)[:, np.newaxis] + mask2.sum(1)[np.newaxis]) - intersection  # (area1 + area2) - intersection
     return intersection / (union + eps)
 
+
+def get_classes_boxes_segments(image: AnnotatedImage):
+    "Get classes as array (N,), xyxy boxes as array (N, 4), list of segments with len N"
+
+    classes = []
+    boxes = []
+    segments = []
+
+    for bbox in image.annotations:
+        cat = bbox.category_id
+        xywh = bbox.bbox
+        sgm = bbox.segmentation
+        x, y, w, h = xywh
+        xyxy = [x, y, x + w, y + h]
+        classes.append(cat)
+        boxes.append(xyxy)
+        segments.append(sgm)
     
+    classes = np.array(classes).astype('int32')
+    boxes = np.array(boxes)
+
+    return classes, boxes, segments
+
+
+def get_segments_iou(segments1: list, segments2: list, size: tuple) -> float:
+    w, h = size
+    masks = [np.zeros((h, w), dtype='uint8') for i in range(2)]
+    segments_list = [segments1, segments2]
+    
+    for i, segments in enumerate(segments_list):
+        mask = masks[i]
+        new_segments = []
+        for s in segments:
+            s = np.array(s).reshape(-1, 1, 2)
+            new_segments.append(s)
+        cv2.fillPoly(mask, new_segments, 1)
+    
+    mask1 = masks[0].reshape(1, -1)
+    mask2 = masks[1].reshape(1, -1)
+
+    iou = mask_iou(mask1, mask2)[0, 0]
+    return iou
+    
+
+
+### -----------------------------------------------------------------------------------------------
 
 def kpt_iou(kpt1, kpt2, area, sigma, eps=1e-7):
     """
